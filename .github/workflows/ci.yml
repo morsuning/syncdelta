@@ -26,6 +26,8 @@ jobs:
           cache: false
       - name: Test
         shell: bash
+        env:
+          CGO_ENABLED: "0" # same configuration as the released binaries
         run: |
           set +e
           go test -count=1 -timeout 25m ./... > test.log 2>&1
