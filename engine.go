@@ -764,9 +764,15 @@ func readChanges(dir string, limit int) []Change {
 }
 
 // safeJoin 把相对路径拼到 base 下,拒绝绝对路径和越界("..")。
+// 以 / 或 \ 开头的路径在所有平台上都按绝对路径拒绝:Windows 上 "/x" 没有盘符,
+// filepath.IsAbs 认为它不是绝对路径,但增量包里的路径从来不该以斜杠开头。
 func safeJoin(base, rel string) (string, bool) {
-	rel = filepath.FromSlash(strings.TrimSpace(rel))
-	if rel == "" || filepath.IsAbs(rel) || filepath.VolumeName(rel) != "" {
+	rel = strings.TrimSpace(rel)
+	if rel == "" || rel[0] == '/' || rel[0] == '\\' {
+		return "", false
+	}
+	rel = filepath.FromSlash(rel)
+	if filepath.IsAbs(rel) || filepath.VolumeName(rel) != "" {
 		return "", false
 	}
 	p := filepath.Join(base, rel)
