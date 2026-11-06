@@ -1,0 +1,652 @@
+<!doctype html>
+<!--
+  This Source Code Form is subject to the terms of the Mozilla Public
+  License, v. 2.0. If a copy of the MPL was not distributed with this
+  file, You can obtain one at https://mozilla.org/MPL/2.0/.
+-->
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>SyncDelta · 离线增量同步</title>
+<style>
+:root{
+  --bg:#f4f5f7;--card:#fff;--text:#1b1f24;--dim:#6a7280;--line:#e1e4e9;--hover:#f0f2f5;
+  --acc:#2563eb;--acc-h:#1d4ed8;--acc-t:#fff;--chip:#eef1f5;
+  --ok:#15803d;--okbg:#e7f6ec;--warn:#b45309;--warnbg:#fdf3e1;--bad:#b91c1c;--badbg:#fdeaea;
+  --mono:ui-monospace,SFMono-Regular,Menlo,Consolas,"Liberation Mono",monospace;
+}
+@media(prefers-color-scheme:dark){:root{
+  --bg:#101215;--card:#1a1d22;--text:#e6e8eb;--dim:#8d95a2;--line:#2a2f36;--hover:#232830;
+  --acc:#5b9bff;--acc-h:#7cb0ff;--acc-t:#0b1220;--chip:#252a32;
+  --ok:#4ade80;--okbg:#14301f;--warn:#fbbf24;--warnbg:#3a2c0e;--bad:#f87171;--badbg:#3a1717;}}
+*{box-sizing:border-box}
+html,body{margin:0}
+body{background:var(--bg);color:var(--text);font:14px/1.5 system-ui,-apple-system,"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif}
+header{background:var(--card);border-bottom:1px solid var(--line);position:sticky;top:0;z-index:5}
+.bar{max-width:1120px;margin:0 auto;padding:0 20px;display:flex;align-items:center;gap:24px;height:52px}
+.logo{font-weight:700;font-size:16px;letter-spacing:.2px}
+.logo small{font-weight:400;color:var(--dim);margin-left:8px;font-size:12px}
+nav{display:flex;gap:4px;height:100%}
+nav button{border:0;background:none;color:var(--dim);font:inherit;padding:0 14px;cursor:pointer;border-bottom:2px solid transparent;height:100%}
+nav button.on{color:var(--text);border-color:var(--acc);font-weight:600}
+nav button:hover{color:var(--text)}
+.sp{flex:1}
+main{max-width:1120px;margin:0 auto;padding:20px}
+.card{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:16px 18px;margin-bottom:16px}
+.card>h2{margin:0 0 12px;font-size:14px;font-weight:600;display:flex;align-items:center;gap:8px}
+.card>h2 .sub{font-weight:400;color:var(--dim);font-size:12px}
+.row{display:flex;align-items:center;gap:10px}
+.row.wrap{flex-wrap:wrap}
+.field{display:grid;grid-template-columns:84px 1fr auto;gap:10px;align-items:center;margin:8px 0}
+.field label{color:var(--dim)}
+input[type=text],select,textarea{width:100%;font:inherit;color:var(--text);background:var(--bg);border:1px solid var(--line);border-radius:7px;padding:7px 10px;outline:none}
+input[type=text]:focus,select:focus,textarea:focus{border-color:var(--acc);box-shadow:0 0 0 3px color-mix(in srgb,var(--acc) 18%,transparent)}
+input.path,textarea{font-family:var(--mono);font-size:12.5px}
+textarea{resize:vertical;min-height:120px;line-height:1.55}
+button.btn{font:inherit;border:1px solid var(--line);background:var(--card);color:var(--text);border-radius:7px;padding:7px 14px;cursor:pointer;white-space:nowrap}
+button.btn:hover:not(:disabled){background:var(--hover)}
+button.btn.pri{background:var(--acc);border-color:var(--acc);color:var(--acc-t);font-weight:600}
+button.btn.pri:hover:not(:disabled){background:var(--acc-h)}
+button.btn.sm{padding:3px 10px;font-size:12px}
+button.btn.danger{color:var(--bad)}
+button:disabled{opacity:.5;cursor:not-allowed}
+button.link{background:none;border:0;color:var(--acc);cursor:pointer;font:inherit;padding:0}
+button.link:hover{text-decoration:underline}
+.hint{color:var(--dim);font-size:12.5px}
+.err{color:var(--bad);font-size:12.5px;margin-top:6px}
+.cols{display:grid;grid-template-columns:1.25fr 1fr;gap:18px}
+@media(max-width:860px){.cols{grid-template-columns:1fr}.field{grid-template-columns:1fr auto}.field label{grid-column:1/-1}}
+.tree{border:1px solid var(--line);border-radius:8px;background:var(--bg);max-height:380px;min-height:120px;overflow:auto;padding:4px 0}
+.node{display:flex;align-items:center;gap:6px;padding:2px 8px;min-height:26px}
+.node:hover{background:var(--hover)}
+.node .tw{width:16px;text-align:center;color:var(--dim);cursor:pointer;user-select:none;font-size:11px}
+.node .tw.none{cursor:default}
+.node input{margin:0;cursor:pointer}
+.node input:disabled{cursor:not-allowed}
+.node .nm{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.node .sz{margin-left:auto;color:var(--dim);font-size:12px;padding-left:12px;white-space:nowrap}
+.node.ex .nm{color:var(--dim);text-decoration:line-through}
+.node.dim{opacity:.55}
+.node svg{flex:none;color:var(--dim)}
+.tag{font-size:11px;background:var(--chip);color:var(--dim);border-radius:4px;padding:0 6px;white-space:nowrap}
+.chips{display:flex;flex-wrap:wrap;gap:6px;margin-top:6px}
+.chip{display:inline-flex;align-items:center;gap:6px;background:var(--chip);border-radius:6px;padding:2px 4px 2px 9px;font-family:var(--mono);font-size:12px;max-width:100%}
+.chip span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.chip button{border:0;background:none;color:var(--dim);cursor:pointer;font-size:15px;line-height:1;padding:0 4px}
+.chip button:hover{color:var(--bad)}
+.status{display:flex;flex-wrap:wrap;gap:6px 18px;color:var(--dim);font-size:13px;margin-bottom:12px}
+.status b{color:var(--text);font-weight:600}
+.actions{display:flex;flex-wrap:wrap;gap:10px;align-items:center}
+details.more{position:relative}
+details.more summary{list-style:none;cursor:pointer}
+details.more summary::-webkit-details-marker{display:none}
+details.more .pop{position:absolute;z-index:4;top:36px;left:0;background:var(--card);border:1px solid var(--line);border-radius:8px;padding:6px;min-width:200px;box-shadow:0 8px 24px rgba(0,0,0,.14)}
+details.more .pop button{display:block;width:100%;text-align:left;border:0;background:none;font:inherit;color:var(--text);padding:7px 10px;border-radius:6px;cursor:pointer}
+details.more .pop button:hover{background:var(--hover)}
+.prog{margin-top:14px;padding:12px 14px;border:1px solid var(--line);border-radius:8px;background:var(--bg)}
+.prog .t{display:flex;gap:10px;align-items:center;margin-bottom:8px}
+.prog .t .cur{color:var(--dim);font-family:var(--mono);font-size:12px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1;direction:rtl;text-align:left}
+.bar2{height:6px;border-radius:3px;background:var(--line);overflow:hidden}
+.bar2>i{display:block;height:100%;background:var(--acc);width:0;transition:width .2s}
+.bar2.ind>i{width:35%;animation:ind 1.1s ease-in-out infinite alternate}
+@keyframes ind{from{margin-left:0}to{margin-left:65%}}
+.sum{display:flex;flex-wrap:wrap;gap:10px;margin:2px 0 12px}
+.pill{border-radius:8px;padding:8px 14px;min-width:96px}
+.pill b{display:block;font-size:20px;line-height:1.2}
+.pill span{font-size:12px}
+.pill.a{background:var(--okbg);color:var(--ok)}.pill.m{background:var(--warnbg);color:var(--warn)}.pill.d{background:var(--badbg);color:var(--bad)}.pill.u{background:var(--chip);color:var(--dim)}
+.banner{border-radius:8px;padding:9px 12px;margin:8px 0;font-size:13px}
+.banner.info{background:var(--chip)}.banner.warn{background:var(--warnbg);color:var(--warn)}.banner.ok{background:var(--okbg);color:var(--ok)}.banner.bad{background:var(--badbg);color:var(--bad)}
+.tabs{display:flex;gap:2px;border-bottom:1px solid var(--line);margin:10px 0 6px}
+.tabs button{border:0;background:none;font:inherit;color:var(--dim);padding:6px 12px;cursor:pointer;border-bottom:2px solid transparent;margin-bottom:-1px}
+.tabs button.on{color:var(--text);border-color:var(--acc);font-weight:600}
+.list{max-height:420px;overflow:auto;border:1px solid var(--line);border-radius:8px}
+.li{display:flex;align-items:center;gap:10px;padding:4px 10px;border-bottom:1px solid var(--line);font-size:12.5px}
+.li:last-child{border-bottom:0}
+.li:hover{background:var(--hover)}
+.li .p{font-family:var(--mono);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1}
+.li .p i{font-style:normal;color:var(--dim)}
+.li .s{color:var(--dim);white-space:nowrap}
+.bd{display:inline-block;width:20px;text-align:center;border-radius:4px;font-weight:700;font-size:11px;line-height:18px}
+.bd.A{background:var(--okbg);color:var(--ok)}.bd.M{background:var(--warnbg);color:var(--warn)}.bd.D{background:var(--badbg);color:var(--bad)}
+.inc{display:flex;align-items:center;gap:12px;padding:8px 10px;border:1px solid var(--line);border-radius:8px;margin-top:8px}
+.inc .nm{font-family:var(--mono);font-weight:600}
+.inc .meta{color:var(--dim);font-size:12.5px;flex:1}
+.empty{color:var(--dim);padding:18px;text-align:center}
+.check{display:flex;align-items:center;gap:8px;cursor:pointer}
+/* modal */
+.mask{position:fixed;inset:0;background:rgba(0,0,0,.42);display:flex;align-items:center;justify-content:center;z-index:20}
+.modal{background:var(--card);border:1px solid var(--line);border-radius:12px;width:min(640px,94vw);max-height:84vh;display:flex;flex-direction:column;box-shadow:0 20px 60px rgba(0,0,0,.3)}
+.modal h3{margin:0;padding:14px 18px 8px;font-size:15px}
+.modal .body{padding:0 18px;overflow:auto;flex:1}
+.modal .foot{padding:12px 18px;display:flex;gap:10px;justify-content:flex-end;border-top:1px solid var(--line);margin-top:10px}
+.sc{display:flex;flex-wrap:wrap;gap:6px;margin:8px 0}
+.sc button{border:1px solid var(--line);background:var(--bg);color:var(--text);border-radius:14px;font:inherit;font-size:12px;padding:2px 10px;cursor:pointer}
+.sc button:hover{background:var(--hover)}
+.dirs{border:1px solid var(--line);border-radius:8px;height:280px;overflow:auto;margin-top:8px}
+.dirs .it{display:flex;align-items:center;gap:8px;padding:5px 10px;cursor:pointer}
+.dirs .it:hover{background:var(--hover)}
+#toast{position:fixed;left:50%;bottom:28px;transform:translateX(-50%);z-index:30;display:flex;flex-direction:column;gap:8px;align-items:center}
+#toast div{background:#222831;color:#fff;border-radius:8px;padding:8px 16px;font-size:13px;box-shadow:0 6px 20px rgba(0,0,0,.25);max-width:80vw}
+#toast div.bad{background:#b91c1c}
+#closed{position:fixed;inset:0;background:var(--bg);z-index:40;display:none;align-items:center;justify-content:center;flex-direction:column;gap:8px;text-align:center}
+footer{max-width:1120px;margin:0 auto;padding:4px 20px 28px;color:var(--dim);font-size:12px}
+footer code{font-family:var(--mono)}
+[hidden]{display:none!important}
+</style>
+</head>
+<body>
+<header><div class="bar">
+  <div class="logo">SyncDelta<small>离线增量同步</small></div>
+  <nav>
+    <button id="navSync" class="on">同步 · 源端</button>
+    <button id="navApply">应用 · 目标端</button>
+  </nav>
+  <div class="sp"></div>
+  <span class="hint" id="saveState"></span>
+  <button class="btn sm" id="btnQuit" title="退出程序">退出</button>
+</div></header>
+
+<main>
+<!-- ======================= 同步(源端) ======================= -->
+<section id="tabSync">
+  <div class="card">
+    <div class="row wrap">
+      <b>同步任务</b>
+      <select id="profSel" style="width:260px"></select>
+      <button class="btn sm" id="btnNew">新建</button>
+      <button class="btn sm" id="btnRen">重命名</button>
+      <button class="btn sm danger" id="btnDel">删除</button>
+      <span class="hint">每个任务有独立的源文件夹、排除规则和基线</span>
+    </div>
+  </div>
+
+  <div class="card">
+    <h2>目录</h2>
+    <div class="field"><label>源文件夹</label><input type="text" class="path" id="inSrc" placeholder="要同步的文件夹(绝对路径)" spellcheck="false"><button class="btn" id="pickSrc">选择…</button></div>
+    <div class="field"><label>导出到</label><input type="text" class="path" id="inOut" placeholder="增量包的存放位置,例如 U 盘上的文件夹" spellcheck="false"><button class="btn" id="pickOut">选择…</button></div>
+    <div class="err" id="dirErr"></div>
+  </div>
+
+  <div class="card">
+    <h2>排除 <span class="sub">被排除的文件/文件夹不会参与比较和导出</span></h2>
+    <div class="cols">
+      <div>
+        <div class="hint" style="margin-bottom:6px">在源文件夹里勾选要排除的文件或文件夹(点 ▸ 展开)</div>
+        <div class="tree" id="tree"></div>
+      </div>
+      <div>
+        <div class="hint" style="margin-bottom:6px;display:flex;align-items:center;gap:8px">排除规则,每行一条(<b>.gitignore 语法</b>)<button class="link" id="btnGitignore" title="把源文件夹根目录下的 .gitignore 追加到下面的规则里">导入源文件夹的 .gitignore</button></div>
+        <textarea id="inPat" spellcheck="false" placeholder="例如:&#10;node_modules/&#10;*.log&#10;!important.log&#10;.DS_Store&#10;/build&#10;docs/**/*.tmp"></textarea>
+        <div class="err" id="patErr"></div>
+        <div class="hint" style="margin-top:6px">与 .gitignore 完全一致:<code>*.log</code> 任意层级;<code>name/</code> 只匹配文件夹;含 <code>/</code> 或以 <code>/</code> 开头的相对源文件夹根匹配;<code>**</code> 跨层级(<code>**/x</code>、<code>a/**/b</code>、<code>a/**</code>);<code>? [a-z] [!a-z]</code>;<code>!规则</code> 取消排除,<b>同一路径以最后一条命中的为准</b>,但上级文件夹已被排除时里面的内容不能再找回;<code>\#</code> <code>\!</code> <code>\ </code> 转义;<code>#</code> 开头为注释。Windows/macOS 不区分大小写。</div>
+        <div style="margin-top:12px"><b style="font-size:13px">已勾选排除的路径</b>
+          <div class="chips" id="chips"></div></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="card">
+    <h2>基线与同步</h2>
+    <div class="status" id="baseStatus"></div>
+    <div class="actions">
+      <button class="btn" id="btnScan">扫描预览</button>
+      <button class="btn pri" id="btnExport">导出增量</button>
+      <button class="btn" id="btnBase" title="只把当前状态记为基线,不复制任何文件">仅记录基线</button>
+      <details class="more" id="moreMenu"><summary class="btn">基线管理 ▾</summary>
+        <div class="pop">
+          <button id="btnRollback">回退到上一份基线</button>
+          <button id="btnClear">清除基线(下次导出全量)</button>
+        </div></details>
+      <label class="check hint" title="默认只对大小或修改时间变化的文件重算哈希。勾选后每次都重算所有文件(更慢但最稳妥)"><input type="checkbox" id="inRehash"> 强制重算全部哈希</label>
+      <label class="check hint" title="通用压缩:标准 ZPAQ 格式,每一段都能用官方 zpaq 程序解开。极限压缩:体积最小,速度较慢。直接复制:不压缩,导出成 files 文件夹。"><span>导出方式</span>
+        <select id="inCompress" style="width:auto;margin-left:6px"><option value="zpaq">通用压缩</option><option value="ctxmix">极限压缩</option><option value="none">直接复制</option></select></label>
+    </div>
+    <div class="prog" id="prog" hidden>
+      <div class="t"><b id="progPhase"></b><span class="cur" id="progCur"></span><button class="btn sm" id="btnCancel">取消</button></div>
+      <div class="bar2" id="progBar"><i></i></div>
+    </div>
+  </div>
+
+  <div class="card" id="resCard" hidden>
+    <h2 id="resTitle">结果</h2>
+    <div id="resBody"></div>
+  </div>
+</section>
+
+<!-- ======================= 应用(目标端) ======================= -->
+<section id="tabApply" hidden>
+  <div class="card">
+    <h2>应用增量包 <span class="sub">在目标机器上,把拷过来的增量包覆盖到已有的那份拷贝上</span></h2>
+    <div class="field"><label>增量包位置</label><input type="text" class="path" id="inInc" placeholder="单个 inc_… 文件夹,或存放多个 inc_… 的上级文件夹" spellcheck="false"><button class="btn" id="pickInc">选择…</button></div>
+    <div class="field"><label>目标文件夹</label><input type="text" class="path" id="inTgt" placeholder="之前拷贝出来的那份文件夹(绝对路径)" spellcheck="false"><button class="btn" id="pickTgt">选择…</button></div>
+    <div class="err" id="applyErr"></div>
+    <div id="incList"></div>
+    <div class="actions" style="margin-top:14px">
+      <button class="btn pri" id="btnApply">应用所选增量包</button>
+      <label class="check"><input type="checkbox" id="inDel" checked> 同时删除源端已删除的文件</label>
+      <span class="hint">多个增量包会按时间先后依次应用</span>
+    </div>
+    <div class="prog" id="prog2" hidden>
+      <div class="t"><b id="prog2Phase"></b><span class="cur" id="prog2Cur"></span><button class="btn sm" id="btnCancel2">取消</button></div>
+      <div class="bar2" id="prog2Bar"><i></i></div>
+    </div>
+  </div>
+  <div class="card" id="prevCard" hidden><h2 id="prevTitle">变更清单</h2><div id="prevBody"></div></div>
+  <div class="card" id="applyRes" hidden><h2>应用结果</h2><div id="applyResBody"></div></div>
+</section>
+</main>
+<footer><span id="ver"></span></footer>
+
+<div id="toast"></div>
+<div id="closed"><h2 style="margin:0">SyncDelta 已退出</h2><div class="hint">可以关闭这个页面了。再次运行程序即可重新打开。</div></div>
+
+<script>
+"use strict";
+const $ = s => document.querySelector(s);
+const sleep = ms => new Promise(r => setTimeout(r, ms));
+const esc = s => String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const fmtSize = n => { if (n < 1024) return n + ' B'; const u = ['KB','MB','GB','TB']; let i = -1; do { n /= 1024; i++ } while (n >= 1024 && i < 3); return n.toFixed(n < 10 ? 1 : 0) + ' ' + u[i]; };
+const ICON_DIR = '<svg width="15" height="15" viewBox="0 0 16 16" fill="currentColor"><path d="M1.5 3.5A1.5 1.5 0 0 1 3 2h3l1.5 1.5H13A1.5 1.5 0 0 1 14.5 5v7A1.5 1.5 0 0 1 13 13.5H3A1.5 1.5 0 0 1 1.5 12z"/></svg>';
+const ICON_FILE = '<svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3"><path d="M4 1.8h5.2L12.5 5v9.2H4z"/><path d="M9 1.8V5.2h3.5"/></svg>';
+
+async function api(method, url, body) {
+  const r = await fetch(url, { method, headers: Object.assign({ 'X-SD': '1' }, body !== undefined ? { 'Content-Type': 'application/json' } : {}), body: body !== undefined ? JSON.stringify(body) : undefined });
+  let j = {}; try { j = await r.json(); } catch (e) {}
+  if (!r.ok) throw new Error(j.error || ('请求失败 (' + r.status + ')'));
+  return j;
+}
+function toast(msg, bad) {
+  const d = document.createElement('div'); d.textContent = msg; if (bad) d.className = 'bad';
+  $('#toast').append(d); setTimeout(() => d.remove(), bad ? 6000 : 2600);
+}
+
+const S = { info: null, profiles: [], cur: null, base: null, expanded: new Set(), busy: false, result: null, rowLimit: 2000 };
+
+/* ---------------- 启动 / 心跳 ---------------- */
+let pingFails = 0;
+function closedScreen() { $('#closed').style.display = 'flex'; }
+setInterval(async () => {
+  try { await api('POST', '/api/ping'); pingFails = 0; } catch (e) { if (++pingFails >= 3) closedScreen(); }
+}, 3000);
+window.addEventListener('pagehide', () => { try { navigator.sendBeacon('/api/bye'); } catch (e) {} });
+
+async function init() {
+  S.info = await api('GET', '/api/state');
+  S.profiles = S.info.profiles || [];
+  $('#ver').textContent = 'v' + S.info.version + ' · ' + S.info.os + '/' + S.info.arch;
+  if (!S.profiles.length) {
+    const p = await api('PUT', '/api/profile', { name: '默认任务', src: '', out: '', excludePaths: [], excludePatterns: [] });
+    S.profiles = [p];
+  }
+  const last = localStorage.getItem('sd.lastProfile');
+  selectProfile((S.profiles.find(p => p.id === last) || S.profiles[0]).id);
+  $('#inInc').value = S.info.lastInc || ''; $('#inTgt').value = S.info.lastTarget || '';
+  if ($('#inInc').value) loadIncs();
+  // 页面刷新时,若后台任务仍在运行则接着显示进度
+  const j = await api('GET', '/api/job');
+  if (j.state === 'running') { setBusy(true); const done = await waitJob(); setBusy(false); onJobDone(done); }
+}
+
+/* ---------------- 任务(Profile) ---------------- */
+function fillProfSel() {
+  const sel = $('#profSel'); sel.innerHTML = '';
+  S.profiles.forEach(p => { const o = document.createElement('option'); o.value = p.id; o.textContent = p.name; sel.append(o); });
+  sel.value = S.cur ? S.cur.id : '';
+}
+function selectProfile(id) {
+  const p = S.profiles.find(x => x.id === id); if (!p) return;
+  S.cur = JSON.parse(JSON.stringify(p)); S.cur.excludePaths ||= []; S.cur.excludePatterns ||= [];
+  localStorage.setItem('sd.lastProfile', id);
+  S.expanded = new Set(); S.result = null; $('#resCard').hidden = true;
+  fillProfSel();
+  $('#inSrc').value = S.cur.src; $('#inOut').value = S.cur.out;
+  $('#inPat').value = S.cur.excludePatterns.join('\n'); $('#inRehash').checked = !!S.cur.rehash; $('#inCompress').value = S.cur.compress || 'zpaq';
+  $('#dirErr').textContent = ''; $('#patErr').textContent = '';
+  renderChips(); refreshTree(); refreshBaseline();
+}
+let saveTimer = null, saveChain = Promise.resolve(), treeDirty = false;
+function scheduleSave(opt) {
+  opt = opt || {};
+  if (opt.tree) treeDirty = true;
+  clearTimeout(saveTimer);
+  const run = () => { saveChain = saveChain.then(doSave); };
+  if (opt.now) run(); else saveTimer = setTimeout(run, 450);
+}
+async function doSave() {
+  const wantTree = treeDirty; treeDirty = false;
+  try {
+    const p = await api('PUT', '/api/profile', S.cur);
+    S.cur.id = p.id; S.cur.lastRun = p.lastRun;
+    const i = S.profiles.findIndex(x => x.id === p.id);
+    if (i >= 0) S.profiles[i] = JSON.parse(JSON.stringify(p));
+    $('#saveState').textContent = '已自动保存'; $('#patErr').textContent = ''; $('#dirErr').textContent = '';
+    setTimeout(() => { if ($('#saveState').textContent === '已自动保存') $('#saveState').textContent = ''; }, 1500);
+    if (wantTree) refreshTree();
+  } catch (e) {
+    $('#saveState').textContent = '';
+    const msg = e.message;
+    (msg.startsWith('排除规则') ? $('#patErr') : $('#dirErr')).textContent = msg;
+  }
+}
+$('#profSel').onchange = e => selectProfile(e.target.value);
+$('#btnNew').onclick = async () => {
+  const name = prompt('新任务名称:', '新任务'); if (!name) return;
+  const p = await api('PUT', '/api/profile', { name, src: '', out: '', excludePaths: [], excludePatterns: [] });
+  S.profiles.push(p); selectProfile(p.id);
+};
+$('#btnRen').onclick = () => {
+  const name = prompt('任务名称:', S.cur.name); if (!name) return;
+  S.cur.name = name; scheduleSave({ now: true });
+  const o = S.profiles.find(x => x.id === S.cur.id); if (o) o.name = name; fillProfSel();
+};
+$('#btnDel').onclick = async () => {
+  if (!confirm('删除任务「' + S.cur.name + '」?\n它的基线也会被删除(已导出的增量包不受影响,源文件夹也不会被动)。')) return;
+  await api('DELETE', '/api/profile?id=' + S.cur.id);
+  S.profiles = S.profiles.filter(p => p.id !== S.cur.id);
+  if (!S.profiles.length) { const p = await api('PUT', '/api/profile', { name: '默认任务', src: '', out: '', excludePaths: [], excludePatterns: [] }); S.profiles = [p]; }
+  selectProfile(S.profiles[0].id);
+};
+$('#inSrc').onchange = e => { S.cur.src = e.target.value.trim(); S.expanded = new Set(); scheduleSave({ now: true, tree: true }); setTimeout(refreshBaseline, 600); };
+$('#inOut').onchange = e => { S.cur.out = e.target.value.trim(); scheduleSave({ now: true }); };
+$('#inPat').oninput = e => { S.cur.excludePatterns = e.target.value.split('\n'); scheduleSave({ tree: true }); };
+$('#inRehash').onchange = e => { S.cur.rehash = e.target.checked; scheduleSave({ now: true }); };
+$('#btnGitignore').onclick = async () => {
+  try {
+    const r = await api('GET', '/api/gitignore?id=' + S.cur.id);
+    const cur = $('#inPat').value.replace(/\s+$/, '');
+    $('#inPat').value = (cur ? cur + '\n' : '') + '# --- 导入自源文件夹的 .gitignore ---\n' + r.text.replace(/\r\n/g, '\n').replace(/\s+$/, '') + '\n';
+    $('#inPat').dispatchEvent(new Event('input'));
+    toast('已导入。注意:只读取源文件夹根目录的 .gitignore,子目录里的 .gitignore 不会自动生效');
+  } catch (e) { toast(e.message, true); }
+};
+$('#inCompress').onchange = e => { S.cur.compress = e.target.value; scheduleSave({ now: true }); };
+$('#pickSrc').onclick = async () => { const p = await pickFolder('选择源文件夹', S.cur.src); if (p) { $('#inSrc').value = p; $('#inSrc').onchange({ target: $('#inSrc') }); } };
+$('#pickOut').onclick = async () => { const p = await pickFolder('选择增量包导出位置', S.cur.out || S.cur.src); if (p) { $('#inOut').value = p; $('#inOut').onchange({ target: $('#inOut') }); } };
+
+/* ---------------- 目录选择器 ---------------- */
+function pickFolder(title, start) {
+  return new Promise(resolve => {
+    const mask = document.createElement('div'); mask.className = 'mask';
+    mask.innerHTML = '<div class="modal"><h3></h3><div class="body"><div class="row"><button class="btn sm" id="pkUp">↑ 上一级</button><input type="text" class="path" id="pkPath" spellcheck="false"></div><div class="sc" id="pkSc"></div><div class="err" id="pkErr"></div><div class="dirs" id="pkDirs"></div></div><div class="foot"><button class="btn" id="pkCancel">取消</button><button class="btn pri" id="pkOk">选择此文件夹</button></div></div>';
+    mask.querySelector('h3').textContent = title; document.body.append(mask);
+    const q = s => mask.querySelector(s); let cur = '', parent = '';
+    const done = v => { mask.remove(); resolve(v); };
+    async function load(path) {
+      try {
+        const l = await api('GET', '/api/fs?path=' + encodeURIComponent(path));
+        cur = l.path; parent = l.parent; q('#pkPath').value = cur; q('#pkErr').textContent = '';
+        q('#pkUp').disabled = !cur; q('#pkOk').disabled = !cur;
+        q('#pkSc').innerHTML = ''; (l.shortcuts || []).forEach(s => { const b = document.createElement('button'); b.textContent = s.name; b.title = s.path; b.onclick = () => load(s.path); q('#pkSc').append(b); });
+        const box = q('#pkDirs'); box.innerHTML = '';
+        if (!l.entries.length) box.innerHTML = '<div class="empty">(没有子文件夹)</div>';
+        l.entries.forEach(e => { const d = document.createElement('div'); d.className = 'it'; d.innerHTML = ICON_DIR + '<span></span>'; d.lastChild.textContent = e.name; d.onclick = () => load(cur ? joinPath(cur, e.name) : e.name); box.append(d); });
+      } catch (e) { q('#pkErr').textContent = e.message; }
+    }
+    function joinPath(a, b) { const sep = S.info.sep; return a.endsWith(sep) ? a + b : a + sep + b; }
+    q('#pkUp').onclick = () => load(parent);
+    q('#pkPath').onkeydown = e => { if (e.key === 'Enter') load(e.target.value.trim()); };
+    q('#pkCancel').onclick = () => done(null); q('#pkOk').onclick = () => done(cur);
+    mask.addEventListener('mousedown', e => { if (e.target === mask) done(null); });
+    load(start || '').then(() => { if (!cur && start) load(''); });
+  });
+}
+
+/* ---------------- 排除树 ---------------- */
+function renderChips() {
+  const box = $('#chips'); box.innerHTML = '';
+  if (!S.cur.excludePaths.length) { box.innerHTML = '<span class="hint">(无)</span>'; return; }
+  S.cur.excludePaths.forEach(p => {
+    const c = document.createElement('span'); c.className = 'chip'; c.title = p;
+    c.innerHTML = '<span></span><button title="取消排除">×</button>'; c.firstChild.textContent = p;
+    c.lastChild.onclick = () => { removeExclude(p); }; box.append(c);
+  });
+}
+function addExclude(rel) { if (!S.cur.excludePaths.includes(rel)) S.cur.excludePaths.push(rel); renderChips(); scheduleSave({ now: true, tree: true }); }
+function removeExclude(rel) { S.cur.excludePaths = S.cur.excludePaths.filter(x => x !== rel); renderChips(); scheduleSave({ now: true, tree: true }); }
+
+async function refreshTree() {
+  const root = $('#tree'); const top = root.scrollTop;
+  if (!S.cur.src) { root.innerHTML = '<div class="empty">先选择源文件夹</div>'; return; }
+  const frag = document.createElement('div');
+  try { await buildLevel(frag, '', 0); }
+  catch (e) { root.innerHTML = '<div class="empty" style="color:var(--bad)"></div>'; root.firstChild.textContent = e.message; return; }
+  root.replaceChildren(...frag.childNodes); root.scrollTop = top;
+  if (!root.childNodes.length) root.innerHTML = '<div class="empty">(空文件夹)</div>';
+}
+async function buildLevel(container, rel, depth) {
+  const r = await api('GET', '/api/tree?id=' + S.cur.id + '&rel=' + encodeURIComponent(rel));
+  for (const e of r.entries) {
+    const row = document.createElement('div');
+    row.className = 'node' + (e.excluded ? ' ex' : '') + (e.excluded === 'parent' ? ' dim' : '');
+    row.style.paddingLeft = (8 + depth * 18) + 'px';
+    const open = e.isDir && S.expanded.has(e.rel);
+    row.innerHTML = '<span class="tw' + (e.isDir ? '' : ' none') + '">' + (e.isDir ? (open ? '▾' : '▸') : '') + '</span><input type="checkbox" title="勾选 = 排除">' + (e.isDir ? ICON_DIR : ICON_FILE) + '<span class="nm"></span>';
+    row.querySelector('.nm').textContent = e.name; row.title = e.rel;
+    const cb = row.querySelector('input'); cb.checked = !!e.excluded; cb.disabled = e.excluded === 'pattern' || e.excluded === 'parent';
+    if (e.excluded === 'pattern') row.insertAdjacentHTML('beforeend', '<span class="tag">规则</span>');
+    if (!e.isDir) row.insertAdjacentHTML('beforeend', '<span class="sz">' + fmtSize(e.size) + '</span>');
+    cb.onchange = () => (cb.checked ? addExclude(e.rel) : removeExclude(e.rel));
+    container.append(row);
+    if (e.isDir) {
+      const kids = document.createElement('div'); container.append(kids);
+      const tw = row.querySelector('.tw');
+      tw.onclick = async () => {
+        if (S.expanded.has(e.rel)) { S.expanded.delete(e.rel); kids.innerHTML = ''; tw.textContent = '▸'; }
+        else { S.expanded.add(e.rel); tw.textContent = '▾'; try { await buildLevel(kids, e.rel, depth + 1); } catch (err) { toast(err.message, true); } }
+      };
+      if (open) { try { await buildLevel(kids, e.rel, depth + 1); } catch (err) { S.expanded.delete(e.rel); } }
+    }
+  }
+  if (r.truncated) container.insertAdjacentHTML('beforeend', '<div class="hint" style="padding:4px 12px">仅显示前 5000 项,其余请用排除规则处理</div>');
+}
+
+/* ---------------- 基线 ---------------- */
+async function refreshBaseline() {
+  if (!S.cur || !S.cur.id) return;
+  try { S.base = await api('GET', '/api/baseline?id=' + S.cur.id); } catch (e) { S.base = null; }
+  const b = S.base, el = $('#baseStatus'); let h = '';
+  if (b && b.error) h = '<span style="color:var(--bad)">基线文件有问题:' + esc(b.error) + '</span>';
+  else if (b && b.exists) h = '<span>基线:<b>' + esc(b.updated) + '</b>,共 <b>' + b.files + '</b> 个文件</span>';
+  else h = '<span>基线:<b>尚未建立</b>(第一次导出会包含全部文件)</span>';
+  const lr = S.cur.lastRun || (S.profiles.find(p => p.id === S.cur.id) || {}).lastRun;
+  if (lr && lr.mode === 'export') h += '<span>上次导出:' + esc(lr.time) + '(+' + lr.added + ' ~' + lr.modified + ' -' + lr.deleted + ')</span>';
+  el.innerHTML = h;
+  $('#btnRollback').disabled = !(b && b.hasBak); $('#btnClear').disabled = !(b && b.exists);
+}
+$('#btnRollback').onclick = async () => {
+  $('#moreMenu').open = false;
+  if (!confirm('回退到上一份基线?\n(当前基线会被保留,再点一次可以换回来。)')) return;
+  try { S.base = await api('POST', '/api/baseline/rollback?id=' + S.cur.id); toast('已回退基线'); refreshBaseline(); } catch (e) { toast(e.message, true); }
+};
+$('#btnClear').onclick = async () => {
+  $('#moreMenu').open = false;
+  if (!confirm('清除当前基线?\n下一次导出会把源文件夹里的全部文件都当作新增。\n(可以用「回退到上一份基线」找回。)')) return;
+  try { await api('POST', '/api/baseline/clear?id=' + S.cur.id); toast('已清除基线'); refreshBaseline(); } catch (e) { toast(e.message, true); }
+};
+
+/* ---------------- 后台任务 ---------------- */
+function setBusy(b) {
+  S.busy = b;
+  ['btnScan', 'btnExport', 'btnBase', 'btnApply'].forEach(id => $('#' + id).disabled = b);
+  $('#moreMenu').style.pointerEvents = b ? 'none' : ''; $('#moreMenu').style.opacity = b ? .5 : '';
+}
+function showProg(j) {
+  const on = j && j.state === 'running';
+  const ids = [['prog', 'progPhase', 'progCur', 'progBar'], ['prog2', 'prog2Phase', 'prog2Cur', 'prog2Bar']];
+  ids.forEach(([box, ph, cur, bar]) => {
+    $('#' + box).hidden = !on; if (!on) return;
+    const known = j.total > 0;
+    $('#' + ph).textContent = (j.phase || '准备中') + (known ? '  ' + Math.min(j.done, j.total) + ' / ' + j.total : (j.done ? '  ' + j.done : ''));
+    $('#' + cur).textContent = j.current || '';
+    const b = $('#' + bar); b.classList.toggle('ind', !known); b.firstElementChild.style.width = known ? Math.min(100, j.done * 100 / j.total) + '%' : '';
+  });
+}
+async function waitJob() {
+  for (;;) {
+    let j; try { j = await api('GET', '/api/job'); } catch (e) { await sleep(500); continue; }
+    showProg(j); if (j.state !== 'running') return j; await sleep(250);
+  }
+}
+async function startJob(url) {
+  if (S.busy) return;
+  setBusy(true);
+  try { await api('POST', url); } catch (e) { setBusy(false); toast(e.message, true); return; }
+  showProg({ state: 'running', phase: '准备中', done: 0, total: 0 });
+  const j = await waitJob(); setBusy(false); onJobDone(j);
+}
+$('#btnCancel').onclick = $('#btnCancel2').onclick = () => api('POST', '/api/job/cancel').catch(() => {});
+function onJobDone(j) {
+  if (j.state === 'canceled') { toast('已取消'); return; }
+  if (j.kind === 'apply') { renderApplyResult(j); return; }
+  if (j.state === 'error') { toast(j.error, true); return; }
+  S.result = j.result; S.rowLimit = 2000; renderResult(j.result);
+  api('GET', '/api/state').then(s => { S.profiles = s.profiles; const p = s.profiles.find(x => x.id === S.cur.id); if (p) S.cur.lastRun = p.lastRun; refreshBaseline(); });
+}
+function needDirs(needOut) {
+  if (!S.cur.src) { toast('请先选择源文件夹', true); return false; }
+  if (needOut && !S.cur.out) { toast('请先选择导出目录', true); return false; }
+  return true;
+}
+$('#btnScan').onclick = () => { if (needDirs(false)) startJob('/api/scan?id=' + S.cur.id); };
+$('#btnExport').onclick = async () => {
+  if (!needDirs(true)) return;
+  await refreshBaseline();
+  if (!(S.base && S.base.exists) && !confirm('当前还没有基线,本次会导出源文件夹下的全部文件(全量)。\n\n如果目标端已经有一份完整拷贝,建议先点「仅记录基线」。\n\n继续导出全量?')) return;
+  startJob('/api/export?mode=export&id=' + S.cur.id);
+};
+$('#btnBase').onclick = () => {
+  if (!needDirs(false)) return;
+  if (!confirm('把源文件夹当前的状态记为基线?\n不会复制任何文件;之后的导出只包含此后发生的变化。\n\n请确认目标端的拷贝与现在的源文件夹一致。')) return;
+  startJob('/api/export?mode=baseline&id=' + S.cur.id);
+};
+
+/* ---------------- 结果展示 ---------------- */
+function pathHtml(p) { const i = p.lastIndexOf('/'); return '<i>' + esc(p.slice(0, i + 1)) + '</i>' + esc(p.slice(i + 1)); }
+function renderResult(r) {
+  const card = $('#resCard'), body = $('#resBody'); card.hidden = false;
+  const titles = { scan: '扫描预览', export: '导出结果', baseline: '基线已记录' }; $('#resTitle').textContent = titles[r.mode] || '结果';
+  let h = '';
+  if (r.mode === 'baseline') {
+    h += '<div class="banner ok">已把当前状态(共 ' + r.total + ' 个文件)记为基线。下次「导出增量」只会包含此后新增、修改、删除的文件。</div>';
+  } else {
+    if (r.mode === 'scan' && !r.hadBaseline) h += '<div class="banner warn">还没有基线,所以下面所有文件都显示为「新增」。如果目标端已经有完整拷贝,请点「仅记录基线」;否则直接「导出增量」会导出全量。</div>';
+    if (r.mode === 'export' && r.noChanges) h += '<div class="banner ok">自上次基线以来没有任何变化,无需导出。</div>';
+    if (r.mode === 'export' && r.incDir) {
+      const packed = r.level !== 'none';
+      h += '<div class="banner ok">已导出 <b>' + (r.addedN + r.modifiedN) + '</b> 个文件(原始 ' + fmtSize(r.bytes) + (packed && r.packBytes ? ' → 增量包 <b>' + fmtSize(r.packBytes) + '</b>' + (r.bytes ? ',约为原来的 ' + (100 * r.packBytes / r.bytes).toFixed(1) + '%' : '') : '') + ')' + (r.deletedN ? ',另有 <b>' + r.deletedN + '</b> 个文件在源端已删除' : '') + '。<br>增量包:<code style="font-family:var(--mono)">' + esc(r.incDir) + '</code> <button class="link" id="openInc">打开所在文件夹</button><br>' +
+        '<span class="hint">' + (packed ? '把整个增量包文件夹拷到目标端,在「应用」页一键应用(解压、覆盖并处理删除)。<b>只能用本程序解开</b>(data.sdpk 是本程序自己的格式)。' : '把其中 <code>files</code> 里的内容覆盖到目标文件夹即可;或者在目标端的「应用」页一键应用(含删除)。') + '</span></div>';
+    }
+    h += '<div class="sum"><div class="pill a"><b>' + r.addedN + '</b><span>新增</span></div><div class="pill m"><b>' + r.modifiedN + '</b><span>修改</span></div><div class="pill d"><b>' + r.deletedN + '</b><span>删除</span></div><div class="pill u"><b>' + r.unchanged + '</b><span>未变化</span></div></div>';
+    h += '<div class="hint">源文件夹共 ' + r.total + ' 个文件参与比较,' + r.excluded + ' 项被排除规则/勾选排除。</div>';
+  }
+  if (r.dropped) h += '<div class="banner info">有 ' + r.dropped + ' 个之前同步过的文件,现在被排除规则排除了:它们不再参与同步,<b>目标端的这些文件不会被删除</b>。</div>';
+  (r.warnings || []).forEach(w => h += '<div class="banner warn">' + esc(w) + '</div>');
+  if (r.truncated) h += '<div class="banner info">列表过长,界面只显示每类前 20000 项(导出的 CHANGES.txt 是完整的)。</div>';
+  if (r.mode !== 'baseline' && (r.addedN + r.modifiedN + r.deletedN)) {
+    h += '<div class="tabs" id="resTabs"><button data-k="all" class="on">全部</button><button data-k="A">新增 ' + r.addedN + '</button><button data-k="M">修改 ' + r.modifiedN + '</button><button data-k="D">删除 ' + r.deletedN + '</button></div><div class="list" id="resList"></div>';
+  }
+  body.innerHTML = h;
+  const oi = $('#openInc'); if (oi) oi.onclick = () => api('POST', '/api/open', { path: r.incDir }).catch(e => toast(e.message, true));
+  if ($('#resList')) {
+    let kind = 'all';
+    $('#resTabs').onclick = e => { const b = e.target.closest('button'); if (!b) return; kind = b.dataset.k; S.rowLimit = 2000; [...$('#resTabs').children].forEach(x => x.classList.toggle('on', x === b)); drawList(); };
+    const drawList = () => {
+      const rows = [];
+      if (kind === 'all' || kind === 'A') (r.added || []).forEach(x => rows.push(['A', x.path, x.size]));
+      if (kind === 'all' || kind === 'M') (r.modified || []).forEach(x => rows.push(['M', x.path, x.size]));
+      if (kind === 'all' || kind === 'D') (r.deleted || []).forEach(p => rows.push(['D', p, null]));
+      const list = $('#resList'); list.innerHTML = '';
+      rows.slice(0, S.rowLimit).forEach(([t, p, sz]) => {
+        const d = document.createElement('div'); d.className = 'li';
+        d.innerHTML = '<span class="bd ' + t + '">' + t + '</span><span class="p" title="' + esc(p) + '">' + pathHtml(p) + '</span><span class="s">' + (sz != null ? fmtSize(sz) : '') + '</span>';
+        if (r.mode === 'scan' && t !== 'D') {
+          const b = document.createElement('button'); b.className = 'btn sm'; b.textContent = '排除'; b.title = '以后都不同步这个文件';
+          b.onclick = () => { addExclude(p); const arr = (t === 'A' ? r.added : r.modified) || []; const i = arr.findIndex(x => x.path === p); if (i >= 0) arr.splice(i, 1); if (t === 'A') r.addedN--; else r.modifiedN--; toast('已排除 ' + p); renderResult(r); };
+          d.append(b);
+        }
+        list.append(d);
+      });
+      if (rows.length > S.rowLimit) { const m = document.createElement('div'); m.className = 'empty'; m.innerHTML = '还有 ' + (rows.length - S.rowLimit) + ' 项 · <button class="link">显示更多</button>'; m.querySelector('button').onclick = () => { S.rowLimit += 2000; drawList(); }; list.append(m); }
+      if (!rows.length) list.innerHTML = '<div class="empty">(无)</div>';
+    };
+    drawList();
+  }
+  card.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+}
+
+/* ---------------- 应用(目标端) ---------------- */
+$('#navSync').onclick = () => showTab('sync'); $('#navApply').onclick = () => showTab('apply');
+function showTab(t) {
+  $('#tabSync').hidden = t !== 'sync'; $('#tabApply').hidden = t !== 'apply';
+  $('#navSync').classList.toggle('on', t === 'sync'); $('#navApply').classList.toggle('on', t === 'apply');
+}
+$('#pickInc').onclick = async () => { const p = await pickFolder('选择增量包(或存放增量包的文件夹)', $('#inInc').value || (S.cur && S.cur.out)); if (p) { $('#inInc').value = p; loadIncs(); } };
+$('#pickTgt').onclick = async () => { const p = await pickFolder('选择目标文件夹', $('#inTgt').value); if (p) { $('#inTgt').value = p; loadIncs(); } };
+$('#inInc').onchange = $('#inTgt').onchange = () => loadIncs();
+
+let incs = [];
+async function loadIncs() {
+  const dir = $('#inInc').value.trim(), box = $('#incList'); $('#applyErr').textContent = ''; $('#prevCard').hidden = true;
+  if (!dir) { box.innerHTML = ''; return; }
+  try {
+    const r = await api('GET', '/api/inc/list?dir=' + encodeURIComponent(dir) + '&target=' + encodeURIComponent($('#inTgt').value.trim()));
+    incs = r.incs;
+  } catch (e) { box.innerHTML = ''; $('#applyErr').textContent = e.message; return; }
+  if (!incs.length) { box.innerHTML = '<div class="empty">这里没有找到增量包(应包含 data.sdpk 或 files 文件夹的 inc_… 目录)</div>'; return; }
+  box.innerHTML = '';
+  incs.forEach((ii, idx) => {
+    const m = ii.meta || {}; const d = document.createElement('div'); d.className = 'inc';
+    d.innerHTML = '<input type="checkbox" ' + (ii.applied ? '' : 'checked') + '><span class="nm"></span><span class="meta"></span><button class="link">查看清单</button>';
+    d.querySelector('.nm').textContent = ii.name;
+    d.querySelector('.meta').innerHTML = esc((m.created || '') + (m.profile ? ' · ' + m.profile : '')) + ' · <span style="color:var(--ok)">+' + ii.added + '</span> <span style="color:var(--warn)">~' + ii.modified + '</span> <span style="color:var(--bad)">-' + ii.deleted + '</span>' + (m.bytes ? ' · ' + fmtSize(m.bytes) + (m.pack ? ' → ' + fmtSize(m.pack) : '') : '') + (ii.applied ? ' · <span class="tag">已应用于此目标 ' + esc(ii.applied) + '</span>' : '');
+    d.querySelector('button').onclick = () => previewInc(ii);
+    d.dataset.idx = idx; box.append(d);
+  });
+}
+async function previewInc(ii) {
+  try {
+    const r = await api('GET', '/api/inc/preview?dir=' + encodeURIComponent(ii.dir));
+    $('#prevCard').hidden = false; $('#prevTitle').textContent = '变更清单 · ' + ii.name;
+    let h = r.total > (r.changes || []).length ? '<div class="hint" style="margin-bottom:6px">共 ' + r.total + ' 项,仅显示前 ' + (r.changes || []).length + ' 项</div>' : '';
+    h += '<div class="list">' + ((r.changes || []).map(c => '<div class="li"><span class="bd ' + c.tag + '">' + c.tag + '</span><span class="p" title="' + esc(c.path) + '">' + pathHtml(c.path) + '</span></div>').join('') || '<div class="empty">(无变更)</div>') + '</div>';
+    $('#prevBody').innerHTML = h;
+  } catch (e) { toast(e.message, true); }
+}
+$('#btnApply').onclick = async () => {
+  const tgt = $('#inTgt').value.trim(); $('#applyErr').textContent = '';
+  const sel = [...document.querySelectorAll('#incList .inc')].filter(d => d.querySelector('input').checked).map(d => incs[+d.dataset.idx]);
+  if (!sel.length) { toast('请勾选要应用的增量包', true); return; }
+  if (!tgt) { toast('请先选择目标文件夹', true); return; }
+  const del = $('#inDel').checked, nd = sel.reduce((a, x) => a + x.deleted, 0);
+  if (!confirm('把 ' + sel.length + ' 个增量包应用到:\n' + tgt + '\n\n将覆盖同名文件' + (del && nd ? ',并删除 ' + nd + ' 个源端已删除的文件' : '') + '。继续?')) return;
+  setBusy(true);
+  try { await api('POST', '/api/apply', { incs: sel.map(x => x.dir), target: tgt, delete: del }); } catch (e) { setBusy(false); $('#applyErr').textContent = e.message; return; }
+  showProg({ state: 'running', phase: '准备中', done: 0, total: 0 });
+  const j = await waitJob(); setBusy(false); onJobDone(j); loadIncs();
+};
+function renderApplyResult(j) {
+  const r = j.result; $('#applyRes').hidden = false; let h = '';
+  if (j.state === 'error') h += '<div class="banner bad">' + esc(j.error) + '</div>';
+  else h += '<div class="banner ok">已应用到 <code style="font-family:var(--mono)">' + esc(r.target) + '</code> <button class="link" id="openTgt">打开文件夹</button></div>';
+  ((r && r.items) || []).forEach(it => {
+    h += '<div class="inc"><span class="nm">' + esc(it.name) + '</span><span class="meta">覆盖/新增 <b>' + it.copied + '</b> 个文件,删除 <b>' + it.deleted + '</b> 个</span></div>';
+    if (it.skipped && it.skipped.length) h += '<div class="banner warn">有 ' + it.skipped.length + ' 条删除记录被跳过(路径不安全或无法删除):' + esc(it.skipped.slice(0, 5).join(', ')) + '</div>';
+  });
+  $('#applyResBody').innerHTML = h;
+  const ot = $('#openTgt'); if (ot) ot.onclick = () => api('POST', '/api/open', { path: r.target }).catch(e => toast(e.message, true));
+  $('#applyRes').scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+}
+
+/* ---------------- 退出 ---------------- */
+$('#btnQuit').onclick = async () => {
+  if (S.busy && !confirm('有任务正在运行,确定退出吗?')) return;
+  try { await api('POST', '/api/quit'); } catch (e) {}
+  closedScreen();
+};
+
+init().catch(e => { document.body.insertAdjacentHTML('afterbegin', '<div class="banner bad" style="margin:20px">' + esc(e.message) + '</div>'); });
+</script>
+</body>
+</html>

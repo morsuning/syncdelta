@@ -1,0 +1,13 @@
+# 构建产物
+/syncdelta
+/syncdelta.exe
+/dist/
+
+# 运行时数据(配置、基线、日志都放在可执行文件旁边的 syncdelta-data 目录)
+syncdelta-data/
+*.sdtmp
+
+# 编辑器
+.idea/
+.vscode/
+.DS_Store
