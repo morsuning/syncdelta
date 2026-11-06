@@ -23,7 +23,6 @@ import (
 
 const stateVersion = 1
 
-// 基线文件格式与早先的 snapsync.py 完全兼容。
 type FileEntry struct {
 	Size    int64  `json:"size"`
 	MtimeNs int64  `json:"mtime_ns"`
