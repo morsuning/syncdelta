@@ -25,7 +25,17 @@ jobs:
           go-version: ${{ matrix.go }}
           cache: false
       - name: Test
-        run: go test -count=1 -timeout 25m ./...
+        shell: bash
+        run: |
+          set +e
+          go test -count=1 -timeout 25m ./... > test.log 2>&1
+          rc=$?
+          cat test.log
+          if [ $rc -ne 0 ]; then
+            msg=$(grep -E -- '^(--- FAIL|FAIL|panic:)|_test\.go:[0-9]+' test.log | head -30 | sed 's/%/%25/g' | awk '{printf "%s%%0A", $0}')
+            echo "::error title=go test failures::$msg"
+          fi
+          exit $rc
 
   lint:
     runs-on: ubuntu-latest
